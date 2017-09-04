@@ -1,0 +1,223 @@
+﻿@model DataPresentation.Models.WordCloudViewModel
+
+@{
+    ViewBag.Title = "Frequent Word in Region";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+@section head
+{
+    <link rel="stylesheet" href="~/Content/datepicker/css/bootstrap-datepicker3.min.css" />
+}
+
+<!-- start google map -->
+
+<div id="map" style="height: 500px;"></div>
+
+<script>
+    var map;
+    
+    function initMap() {
+        
+        var lat = -27.470125;
+        var lng = 153.021072;
+        
+        map = new google.maps.Map(document.getElementById('map'),
+            {
+                center: { lat: lat, lng: lng },
+                zoom: 14
+            });
+
+        var marker = new google.maps.Marker({
+            position: { lat: lat, lng: lng },
+            map: map,
+            animation: google.maps.Animation.DROP
+        });
+        
+        /* put latitude longitude into form */
+        $("#latitude").val(lat);
+        $("#longitude").val(lng);
+        
+        /* trigger event when user click on the map */
+        google.maps.event.addListener(map, 'click', function(event) {
+            
+            // Set Marker to Clicked Position
+            placeMarker(event.latLng, marker, map);
+            
+            // set new coordinates in the form
+            var lat = event.latLng.lat();
+            var lng = event.latLng.lng();
+            $("#latitude").val(lat);
+            $("#longitude").val(lng);
+            
+            if ($("#AjaxForm #selectedDate").valid()) {
+                
+                // submit query using Ajax to get spatial data
+                // if form is valid
+                AjaxFormSubmit();
+                
+            }
+        });
+    }
+    
+    function placeMarker(location, marker, map) {
+        marker.setPosition(location);
+        marker.setAnimation(google.maps.Animation.DROP);
+        map.setCenter(location);
+    }
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBMAX3A8Br-Cj3kVf2n1HylTvwvQEcWzD4&callback=initMap"
+        async defer></script>
+
+<!-- end google map -->
+
+<!-- word cloud -->
+
+<div id="wc"></div>
+
+<script src="~/Content/js/wordcloud.js"></script>
+
+<!-- end word cloud -->
+
+<!-- Rank List -->
+<ul id="word_table" class="list-group">
+    
+</ul>
+
+
+<h2>Index</h2>
+
+@section NavForm{
+
+    @using (Ajax.BeginForm("Quest", "Home", null , new AjaxOptions
+        {
+            HttpMethod = "POST", 
+            OnSuccess = "OnSuccess",
+            OnFailure = "OnFailure"
+        }, 
+        new {@id = "AjaxForm", @class = "form-inline", @role = "form"}))
+    {
+        @Html.AntiForgeryToken()
+        @Html.HiddenFor(m => m.latitude)
+        @Html.HiddenFor(m => m.longitude)
+        <div class="form-group">
+            <label for="@Html.IdFor(m => m.selectedDate)" class="label-icon">
+                <svg-icon>
+                    <src href="~/Content/icons/sprite.svg#si-glyph-calendar-3"/>
+                </svg-icon> </label>
+            @Html.TextBoxFor(m => m.selectedDate, "{0:dd/MM/yyyy}"
+                , new { @class="form-control datepicker", data_val_format="dd/MM/yyyy" })
+        </div>
+        <div class="form-group">
+            <label for="@Html.IdFor(m => m.selectedTime)" class="label-icon">
+                <svg-icon>
+                    <src href="~/Content/icons/sprite.svg#si-glyph-timer"/>
+                </svg-icon> 
+            </label>
+            @Html.DropDownListFor(m => m.selectedTime,
+                new SelectList(Model.TimeSelections, "Key", "Value"), new {@class = "form-control"})
+        </div>
+        <div calss="form-group">
+            <input type="submit" value="Search" class="btn btn-outline-success" />
+        </div>
+    }
+   
+}
+
+@section javascript {
+    @*    <script src="http://code.jquery.com/jquery-1.9.1.min.js"></script>*@
+
+
+    <script>
+        jQuery.validator.methods["date"] = function(value, element) { return true; }
+        $(document).ready(function() {
+            $("#selectedDate").datepicker({
+                //startDate: '@Html.Raw(Model.selectedDate.ToShortDateString())',
+                format: 'dd/mm/yyyy'
+            });
+        });
+
+        function AjaxFormSubmit(lat, lng) {
+
+            /* serialize data bind into ViewModel */
+            var postData = $("#AjaxForm").serialize();
+
+            $.ajax({
+                type: 'POST',
+                url: '@Url.Action("Quest", "Home")',
+                data: postData,
+                dataType: 'json',
+                success: function(data) { OnSuccess(data); },
+                error: function(data) { OnFailure(data); }
+            });
+        }
+
+        /* Javascript Functions For Ajax */
+        function OnSuccess(data) {
+
+            data = JSON.parse(data);
+
+            if (data != null && data[0].features != null) {
+
+                // clear map 
+                map.data.forEach(function(feature) {
+                    map.data.remove(feature);
+                });
+
+                // add region outline on map
+                map.data.addGeoJson(data[0]);
+
+                // clear information indication
+                $('#suburb').html(data[0].features[0].properties.f2);
+                $('#word_table').html('');
+
+                // if there are terms appeared, fit them to the word cloud and rank list
+                if (data[1]) {
+
+                    // creating and appending DOMs
+                    $('ul#word_table').append('<li class="list-group-tem"><h4>Most Frequent Words</h4></li>');
+
+                    data[1].forEach(function(d, index) {
+                        console.log("count");
+                        var s = d.size.toString().replace(/[0]+/g, '');
+                        if (index < 5) {
+                            $('#word_table').append('<li class="list-group-item" >' +
+                                d.text +
+                                '<span class="secondary-content">' +
+                                s +
+                                '</span></li>');
+                        }
+                    });
+
+                    // renew the word cloud
+                    showNewWords(myWordCloud, data[1]);
+                    console.log(JSON.stringify(data[1]));
+                } else {
+                    // terms not found
+                    alert("no words found");
+                    NoWordsFound(myWordCloud);
+                }
+            } else {
+                alert("Position Out of Range");
+                
+            }       
+        }
+
+        function OnFailure() {
+            alert("Error Request");
+        }
+        
+        function NoWordsFound(vis) {
+            var words = [
+                { size: 10000, text: "NO" }, 
+                { size: 10000, text: "WORDS" }, 
+                { size: 10000, text: "FOUND" }
+            ];
+            showNewWords(vis, words);
+        }
+
+        /* End Javascript Functions For Ajax */
+    </script>
+}
+@Model.selectedDate
+
