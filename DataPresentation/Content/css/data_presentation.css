@@ -1,0 +1,15 @@
+﻿html, body {
+    height:100%;
+    margin:0;
+}
+
+/* utilities */
+.float-left { float:left }
+.float-right { float:right }
+
+nav { background-color: #2ecc71; !important }
+.nav-side { position:fixed; min-height:100%; width:158px; left:0; background-color: red;}
+.container-bottom-right { margin-left:160px; min-height:100%; padding:0; }
+.label-icon { width:36px; }
+.label-icon svg { width:28px;height:28px; }
+.si-glyph-calendar-3 {fill:white;}
