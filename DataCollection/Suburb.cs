@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlTypes;
 using Npgsql;
@@ -39,6 +40,37 @@ namespace DataCollection
                 NpgsqlDataAdapter nda = new NpgsqlDataAdapter(cmd);
                 nda.Fill(dt);
                 
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("get suburb outline failed at sql query");
+                throw e;
+            }
+            finally
+            {
+                DBConnect.CloseConnection();
+            }
+
+            return dt.Rows.Count > 0? dt.Rows[0][0].ToString(): null;
+        }
+
+        public static String getMultipleSuburbOutlines(int[] idList)
+        {
+            DataTable dt = new DataTable();
+            String Sql =
+                "SELECT row_to_json(fc) FROM ( SELECT 'FeatureCollection' As type, array_to_json(array_agg(f)) As features FROM (SELECT 'Feature' As type, ST_AsGeoJSON(lg.geom)::json As geometry, row_to_json((lg.id, loc_pid, suburb_name,ST_AsGeoJSON(ST_Centroid(geom)))) As properties FROM suburbs As lg WHERE lg.id IN :idList ) As f )  As fc;";
+            
+            try
+            {
+                NpgsqlConnection conn = DBConnect.OpenConnection();
+                NpgsqlCommand cmd = conn.CreateCommand();
+                cmd.CommandType = CommandType.Text;
+                cmd.CommandText = Sql;
+                cmd.Parameters.Add((new NpgsqlParameter("idList", NpgsqlDbType.Array)));
+                cmd.Prepare();
+                cmd.Parameters[0].Value = idList;
+                NpgsqlDataAdapter nda = new NpgsqlDataAdapter(cmd);
+                nda.Fill(dt);
             }
             catch (Exception e)
             {

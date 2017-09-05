@@ -1,0 +1,9 @@
+﻿@model Dictionary<string, double>
+
+<ul id="word_table" class="list-group">
+    <li class="list-group-tem"><h4>Most Probable Suburbs</h4></li>
+    @foreach (KeyValuePair<string, double> item in Model)
+    {
+        <li class="list-group-tem">@Model.Keys @Model.Values</li>
+    }
+</ul>

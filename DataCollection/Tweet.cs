@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
@@ -28,8 +29,69 @@ namespace DataCollection
             String terms = GetTerms(suburbId, date, hour);
             return RefineTerms(terms, numToTake);
         }
+
+        /*
+            calculate and find the top 5 highest score of the cosine similarity that match the query.
+        */
+        public static Dictionary<int, double> GetMostSimilarResults(string keywords, int hour, string date)
+        {
+            Dictionary<int, double> retval = new Dictionary<int, double>();
+            try
+            {
+                Dictionary<string, ArrayList> termsAndSuburbs = ListSuburbsAndTerms(hour, date);
+
+                Calculation cal = new Calculation();
+                List<double> queryDoc = cal.generateQueryDoc(keywords);
+                retval = cal.top5RankedCosSimilarity(queryDoc, termsAndSuburbs);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message + "\n" + e.StackTrace);
+            }
+
+            return retval;
+        }
         
-        private static String GetTerms(int suburbId, string date, int hour)
+        public static Dictionary<string, ArrayList> ListSuburbsAndTerms(int hour, string date)
+        {
+            DataTable dt = GetTermsInAnHour(date, hour);
+
+            Dictionary<string, ArrayList> termsAndSuburbs = new Dictionary<string, ArrayList>();
+            termsAndSuburbs.Add("document", new ArrayList());
+            termsAndSuburbs.Add("words", new ArrayList());
+
+            try
+            {
+                if (dt.Rows.Count > 0)
+                {
+                    string[] wordsList;
+
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        // group terms in their suburbs, so each suburb is like a document of text
+                        Dictionary<String, object> document = new Dictionary<String, Object>();
+                        document.Add("suburbId", row[0]);
+                        document.Add("words", row[1].ToString());
+                        termsAndSuburbs["document"].Add(document);
+
+                        foreach (string word in row[1].ToString().Split(','))
+                        {
+                            termsAndSuburbs["words"].Add(word);    
+                        }
+                        
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+                throw e;
+            }
+
+            return termsAndSuburbs;
+        }
+        
+        private static string GetTerms(int suburbId, string date, int hour)
         {
             DataTable dt = new DataTable();
             String Sql = "SELECT suburb_id, string_agg(LTRIM(RTRIM(tokenized,']'), '['),',') AS tokenized_tweepy FROM tweepy WHERE extract(hour from createtime) = :hour and createtime::date = :date and suburb_id = :suburbId and tokenized <> '[]' GROUP BY suburb_id;";
@@ -70,8 +132,43 @@ namespace DataCollection
                 return null;
             }
         }
+
+        private static DataTable GetTermsInAnHour(string date, int hour)
+        {
+            DataTable dt = new DataTable();
+            String Sql = "SELECT suburb_id, string_agg(LTRIM(RTRIM(tokenized,']'), '['),',') AS tokenized_tweepy FROM tweepy WHERE extract(hour from createtime) = :hour and createtime::date = :date and tokenized <> '[]' GROUP BY suburb_id;";
+
+            try
+            {
+                NpgsqlConnection conn = DBConnect.OpenConnection();
+                NpgsqlCommand cmd = conn.CreateCommand();
+                cmd.CommandText = Sql;
+                cmd.Parameters.Add(new NpgsqlParameter("hour", NpgsqlDbType.Integer));
+                cmd.Parameters.Add(new NpgsqlParameter("date", NpgsqlDbType.Date));
+               
+                cmd.Prepare();
+                
+                cmd.Parameters[0].Value = hour;
+                cmd.Parameters[1].Value = date;
+      
+                
+                NpgsqlDataAdapter nda = new NpgsqlDataAdapter(cmd);
+                nda.Fill(dt);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Error when get Terms at SQL query");
+                throw e;
+            }
+            finally
+            {
+                DBConnect.CloseConnection();
+            }
+            
+            return dt;
+        }
         
-        private static Dictionary<String, int> RefineTerms(String terms, int NumOfTermsToTake)
+        public static Dictionary<String, int> RefineTerms(String terms, int numOfTermsToTake)
         {
             if (!String.IsNullOrEmpty(terms))
             {
@@ -89,11 +186,18 @@ namespace DataCollection
                     }
                 }
 
-                Dictionary<String, int> most = retList.GroupBy(o => o).OrderByDescending(grp => grp.Count())
-                    .Select(grp => grp).Take(NumOfTermsToTake)
-                    .ToDictionary(r => r.Key, r => r.Count() * 1000);
+                if (numOfTermsToTake > 0)
+                {
+                    Dictionary<String, int> most = retList.GroupBy(o => o).OrderByDescending(grp => grp.Count())
+                        .Select(grp => grp).Take(numOfTermsToTake)
+                        .ToDictionary(r => r.Key, r => r.Count() * 1000);
 
-                return most;
+                    return most;
+                }
+                else
+                {
+                    return null;
+                }
             }
             else
             {
